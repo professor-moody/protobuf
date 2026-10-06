@@ -22,22 +22,29 @@
 // EqualsTextProto() and EqualsBinaryProto() match a `const Message&` and are
 // meant to be used inside WhenParsed().
 //
-// Yields() is the one matcher that talks to the global TestManager.  It
-// records the outcome of the test and turns the failure list into the gtest
-// verdict:
+// Yields() is the one matcher that reads the global failure list (see
+// GetGlobalFailureList() in global_test_environment.h).  It turns the failure
+// list into the gtest verdict:
 //
 //   - A failure that is in the failure list passes.  A listed test that
 //     succeeds fails.
 //   - A failure of a test above the enforcement level is tolerated unless
 //     the test is listed.  kP0 failures always count (see TestPriority).
-//   - A test the testee skipped passes unless it is listed.  The TestManager
-//     counts it in ListedSkips().
+//   - A test the testee skipped passes unless it is listed.  The test
+//     environment counts it as a listed skip.
+//
+// Yields() reports the outcome of the test, an internal::ResultRecord (see
+// result_record.h), to the global ResultLedger once per conformance test (see
+// ReportOutcome() in global_test_environment.h).  That is the only thing it
+// changes.  The test environment, which owns the ledger, reports each test's
+// outcome as a property of the gtest test and checks the failure list at the
+// end of the run (see test_environment.h).
 //
 // The failure messages of the leaf matchers end up in failure lists, so each
 // matcher documents its message and keeps it stable.  Messages that come from
 // an inner matcher use gMock's wording, which can change between versions.
 // Failure list entries for those should only use a prefix of the message (see
-// TestManager::ReportFailure()).
+// ResultLedger::VerdictOnFailure()).
 //
 // This file also defines PrintTo() for TestResult, which gtest uses to print a
 // result when a matcher on it fails.
@@ -174,16 +181,17 @@ testing::Matcher<const internal::TestResult&> IsSerializeError();
 //               Yields(WhenParsed(EqualsBinaryProto(input))));
 //
 // Yields() evaluates `inner` against the TestResult, reports the outcome to
-// the global TestManager and applies the failure list and priority rules
-// described at the top of this file.  Its verdict is not simply `inner`'s: an
-// expected failure passes and an unexpected success fails.  Do not wrap
-// Yields() in Not() or other combinators.  Compose `inner` instead.
+// the global ResultLedger and applies the failure list and priority rules
+// described at the top of this file.  Its verdict is not
+// simply `inner`'s: an expected failure passes and an unexpected success
+// fails.  Do not wrap Yields() in Not() or other combinators.  Compose `inner`
+// instead.
 //
-// Each test may be checked exactly once.  The first evaluation reports the
-// result to the TestManager, which remembers the test's name.  gtest
-// evaluates a failing matcher a second time to explain the failure; Yields()
-// replays its own failed verdict for that.  Any other check of a result the
-// TestManager has already heard about fails with "already checked".
+// Each result is meant to be checked once.  gtest evaluates a failing matcher
+// a second time to explain the failure, so a second check is allowed as long
+// as it reaches the same outcome, which it then only repeats.  A check that
+// reaches a different outcome than the one recorded is a test bug and fails
+// with "already checked".
 template <typename M>
 testing::Matcher<const internal::TestResult&> Yields(M inner) {
   return internal::MakeYieldsMatcher(
